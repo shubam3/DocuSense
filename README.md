@@ -67,7 +67,6 @@ DocuSense is an enterprise-grade, cloud-native platform built using C# with ASP.
 ### 2. AI Processing Pipeline
 - Azure Function triggers OCR via Azure Cognitive Services
 - Parsed data saved in structured format to SQL or NoSQL
-- Optional: pass data through ML endpoint for classification or risk scoring
 
 ### 3. User Authentication & Roles
 - Managed by Azure AD B2C
