@@ -1,0 +1,504 @@
+================================================================================
+                    DOCUSENSE - COMPLETE SETUP INSTRUCTIONS
+================================================================================
+
+This document contains all the commands and steps needed to run the DocuSense
+project from initial setup to full deployment.
+
+================================================================================
+                            PREREQUISITES
+================================================================================
+
+1. Install Required Software:
+   - .NET 8 SDK: https://dotnet.microsoft.com/download/dotnet/8.0
+   - Azure CLI: https://docs.microsoft.com/en-us/cli/azure/install-azure-cli
+   - Visual Studio 2022 or VS Code
+   - Git: https://git-scm.com/downloads
+
+2. Azure Subscription:
+   - Active Azure subscription
+   - Appropriate permissions to create resources
+
+3. Azure DevOps (Optional):
+   - Azure DevOps organization
+   - Service connection to Azure
+
+================================================================================
+                            LOCAL DEVELOPMENT SETUP
+================================================================================
+
+1. Clone the Repository:
+   ```bash
+   git clone https://github.com/shubam3/DocuSense.git
+cd DocuSense
+   ```
+
+2. Restore Dependencies:
+   ```bash
+   dotnet restore
+   ```
+
+3. Configure Local Settings:
+   ```bash
+   # Copy development settings
+   cp appsettings.Development.json appsettings.Development.local.json
+   
+   # Edit appsettings.Development.local.json with your local settings
+   ```
+
+4. Set Up User Secrets (for local development):
+   ```bash
+   dotnet user-secrets set "Azure:BlobStorage:ConnectionString" "UseDevelopmentStorage=true"
+   dotnet user-secrets set "Azure:CognitiveServices:FormRecognizer:Endpoint" "your-endpoint"
+   dotnet user-secrets set "Azure:CognitiveServices:FormRecognizer:Key" "your-key"
+   dotnet user-secrets set "Azure:CognitiveServices:ComputerVision:Endpoint" "your-endpoint"
+   dotnet user-secrets set "Azure:CognitiveServices:ComputerVision:Key" "your-key"
+   ```
+
+5. Run the Application Locally:
+   ```bash
+   dotnet run
+   ```
+
+6. Access the Application:
+   - Open browser and navigate to: https://localhost:5001 or http://localhost:5000
+
+================================================================================
+                            AZURE INFRASTRUCTURE SETUP
+================================================================================
+
+1. Login to Azure:
+   ```bash
+   az login
+   ```
+
+2. Set Subscription (if you have multiple):
+   ```bash
+   az account set --subscription "your-subscription-id"
+   ```
+
+3. Create Resource Group:
+   ```bash
+   az group create --name azure-doc-iq-rg --location eastus
+   ```
+
+4. Deploy Infrastructure using Bicep:
+   ```bash
+   az deployment group create \
+     --resource-group azure-doc-iq-rg \
+     --template-file Infrastructure/main.bicep \
+     --parameters \
+       resourceGroupName=azure-doc-iq-rg \
+       location=eastus \
+       environment=dev \
+       sqlAdminUsername=your-admin-username \
+       sqlAdminPassword=your-secure-password \
+       b2cTenantName=your-tenant-name \
+       b2cClientId=your-client-id
+   ```
+
+5. Get Deployment Outputs:
+   ```bash
+   az deployment group show \
+     --resource-group azure-doc-iq-rg \
+     --name main \
+     --query properties.outputs
+   ```
+
+================================================================================
+                            AZURE AD B2C SETUP
+================================================================================
+
+1. Create Azure AD B2C Tenant:
+   ```bash
+   az ad b2c tenant create \
+     --name your-tenant-name \
+     --resource-group azure-doc-iq-rg \
+     --location eastus
+   ```
+
+2. Register Application in Azure AD B2C:
+   - Go to Azure Portal > Azure AD B2C
+   - Navigate to "App registrations" > "New registration"
+   - Name: "DocuSense"
+   - Redirect URI: https://your-app-name.azurewebsites.net/signin-oidc
+   - Note the Application (client) ID
+
+3. Create User Flow:
+   - Go to "User flows" > "New user flow"
+   - Select "Sign up and sign in"
+   - Configure attributes and claims
+   - Note the user flow name (e.g., "B2C_1_signupsignin")
+
+4. Update Application Settings:
+   ```bash
+   # Update appsettings.json with B2C configuration
+   az webapp config appsettings set \
+     --resource-group azure-doc-iq-rg \
+     --name azure-doc-iq-dev \
+     --settings \
+       AzureAdB2C__Instance="https://your-tenant.b2clogin.com/" \
+       AzureAdB2C__Domain="your-tenant.onmicrosoft.com" \
+       AzureAdB2C__ClientId="your-client-id" \
+       AzureAdB2C__SignUpSignInPolicyId="B2C_1_signupsignin"
+   ```
+
+================================================================================
+                            AZURE COGNITIVE SERVICES SETUP
+================================================================================
+
+1. Create Cognitive Services Account:
+   ```bash
+   az cognitiveservices account create \
+     --name azure-doc-iq-cs-dev \
+     --resource-group azure-doc-iq-rg \
+     --location eastus \
+     --kind CognitiveServices \
+     --sku S0
+   ```
+
+2. Get Cognitive Services Keys:
+   ```bash
+   az cognitiveservices account keys list \
+     --name azure-doc-iq-cs-dev \
+     --resource-group azure-doc-iq-rg
+   ```
+
+3. Update Application Settings:
+   ```bash
+   az webapp config appsettings set \
+     --resource-group azure-doc-iq-rg \
+     --name azure-doc-iq-dev \
+     --settings \
+       Azure__CognitiveServices__FormRecognizer__Endpoint="https://azure-doc-iq-cs-dev.cognitiveservices.azure.com/" \
+       Azure__CognitiveServices__FormRecognizer__Key="your-key" \
+       Azure__CognitiveServices__ComputerVision__Endpoint="https://azure-doc-iq-cs-dev.cognitiveservices.azure.com/" \
+       Azure__CognitiveServices__ComputerVision__Key="your-key"
+   ```
+
+================================================================================
+                            DATABASE SETUP
+================================================================================
+
+1. Get SQL Connection String:
+   ```bash
+   az sql db show-connection-string \
+     --client ado.net \
+     --name DocuSense \
+     --server azure-doc-iq-sql-dev \
+     --resource-group azure-doc-iq-rg
+   ```
+
+2. Update Application Settings:
+   ```bash
+   az webapp config appsettings set \
+     --resource-group azure-doc-iq-rg \
+     --name azure-doc-iq-dev \
+     --settings \
+       ConnectionStrings__DefaultConnection="your-connection-string"
+   ```
+
+3. Run Entity Framework Migrations:
+   ```bash
+   # Install EF Core tools (if not already installed)
+   dotnet tool install --global dotnet-ef
+   
+   # Create initial migration
+   dotnet ef migrations add InitialCreate
+   
+   # Apply migrations to database
+   dotnet ef database update --connection "your-connection-string"
+   ```
+
+================================================================================
+                            AZURE FUNCTIONS DEPLOYMENT
+================================================================================
+
+1. Install Azure Functions Core Tools:
+   ```bash
+   npm install -g azure-functions-core-tools@4 --unsafe-perm true
+   ```
+
+2. Deploy Azure Functions:
+   ```bash
+   func azure functionapp publish azure-doc-iq-func-dev
+   ```
+
+3. Configure Function App Settings:
+   ```bash
+   az functionapp config appsettings set \
+     --resource-group azure-doc-iq-rg \
+     --name azure-doc-iq-func-dev \
+     --settings \
+       ConnectionStrings__DefaultConnection="your-connection-string" \
+       Azure__BlobStorage__ConnectionString="your-blob-connection-string" \
+       Azure__CognitiveServices__FormRecognizer__Endpoint="your-endpoint" \
+       Azure__CognitiveServices__FormRecognizer__Key="your-key"
+   ```
+
+================================================================================
+                            AZURE DEVOPS PIPELINE SETUP
+================================================================================
+
+1. Create Service Connection:
+   - Go to Azure DevOps > Project Settings > Service connections
+   - Create new service connection for Azure Resource Manager
+   - Grant access to all pipelines
+
+2. Configure Pipeline Variables:
+   - Go to Pipelines > Edit pipeline
+   - Add variables:
+     - AZURE_SUBSCRIPTION_ID: your-subscription-id
+     - RESOURCE_GROUP_NAME: azure-doc-iq-rg
+     - AZURE_LOCATION: eastus
+     - WEB_APP_NAME: azure-doc-iq-dev
+     - FUNCTION_APP_NAME: azure-doc-iq-func-dev
+     - APP_INSIGHTS_NAME: azure-doc-iq-ai-dev
+
+3. Run Pipeline:
+   ```bash
+   # Commit and push changes to trigger pipeline
+   git add .
+   git commit -m "Initial deployment"
+   git push origin main
+   ```
+
+================================================================================
+                            MONITORING SETUP
+================================================================================
+
+1. Configure Application Insights:
+   ```bash
+   # Get Application Insights connection string
+   az monitor app-insights component show \
+     --app azure-doc-iq-ai-dev \
+     --resource-group azure-doc-iq-rg \
+     --query connectionString
+   ```
+
+2. Update Application Settings:
+   ```bash
+   az webapp config appsettings set \
+     --resource-group azure-doc-iq-rg \
+     --name azure-doc-iq-dev \
+     --settings \
+       APPLICATIONINSIGHTS_CONNECTION_STRING="your-connection-string"
+   ```
+
+3. Set Up Alerts:
+   ```bash
+   # Create alert rule for high error rate
+   az monitor metrics alert create \
+     --name "HighErrorRate" \
+     --resource-group azure-doc-iq-rg \
+     --scopes "/subscriptions/your-subscription-id/resourceGroups/azure-doc-iq-rg/providers/Microsoft.Web/sites/azure-doc-iq-dev" \
+     --condition "avg Percentage5xx > 5" \
+     --description "Alert when error rate is high"
+   ```
+
+================================================================================
+                            SECURITY CONFIGURATION
+================================================================================
+
+1. Enable Managed Identity:
+   ```bash
+   az webapp identity assign \
+     --resource-group azure-doc-iq-rg \
+     --name azure-doc-iq-dev
+   ```
+
+2. Configure Key Vault Access:
+   ```bash
+   # Get managed identity principal ID
+   az webapp identity show \
+     --resource-group azure-doc-iq-rg \
+     --name azure-doc-iq-dev \
+     --query principalId
+   
+   # Grant Key Vault access
+   az keyvault set-policy \
+     --name azure-doc-iq-kv-dev \
+     --resource-group azure-doc-iq-rg \
+     --object-id "your-principal-id" \
+     --secret-permissions get list
+   ```
+
+3. Configure CORS for Blob Storage:
+   ```bash
+   az storage account cors add \
+     --account-name docusensedev \
+     --resource-group azure-doc-iq-rg \
+     --services blob \
+     --methods GET POST PUT DELETE \
+     --origins "https://azure-doc-iq-dev.azurewebsites.net" \
+     --allowed-headers "*" \
+     --exposed-headers "*" \
+     --max-age 86400
+   ```
+
+================================================================================
+                            TESTING THE APPLICATION
+================================================================================
+
+1. Access the Application:
+   ```bash
+   # Get the web app URL
+   az webapp show \
+     --resource-group azure-doc-iq-rg \
+     --name azure-doc-iq-dev \
+     --query defaultHostName
+   ```
+
+2. Test User Registration:
+   - Navigate to the application URL
+   - Click "Register" to create a new account
+   - Complete the B2C registration flow
+
+3. Test Document Upload:
+   - Login to the application
+   - Go to "Upload Document"
+   - Upload a test PDF or image
+   - Verify AI processing completes
+
+4. Test AI Processing:
+   - Upload a document with form fields
+   - Check that fields are extracted correctly
+   - Verify confidence scores are displayed
+
+5. Test Audit Logging:
+   - Perform various actions in the application
+   - Check audit logs in the database
+   - Verify anomaly detection works
+
+================================================================================
+                            TROUBLESHOOTING COMMANDS
+================================================================================
+
+1. Check Application Logs:
+   ```bash
+   az webapp log tail \
+     --resource-group azure-doc-iq-rg \
+     --name azure-doc-iq-dev
+   ```
+
+2. Check Function App Logs:
+   ```bash
+   az functionapp logs tail \
+     --resource-group azure-doc-iq-rg \
+     --name azure-doc-iq-func-dev
+   ```
+
+3. Check Database Connection:
+   ```bash
+   # Test SQL connection
+   sqlcmd -S azure-doc-iq-sql-dev.database.windows.net -U your-username -P your-password -d DocuSense -Q "SELECT 1"
+   ```
+
+4. Check Blob Storage:
+   ```bash
+   # List containers
+   az storage container list \
+     --account-name docusensedev \
+     --auth-mode login
+   ```
+
+5. Check Cognitive Services:
+   ```bash
+   # Test Cognitive Services
+   curl -H "Ocp-Apim-Subscription-Key: your-key" \
+     "https://azure-doc-iq-cs-dev.cognitiveservices.azure.com/vision/v3.2/analyze?visualFeatures=Description" \
+     -H "Content-Type: application/json" \
+     -d "{\"url\":\"https://example.com/test-image.jpg\"}"
+   ```
+
+================================================================================
+                            CLEANUP COMMANDS
+================================================================================
+
+1. Delete Resource Group (removes all resources):
+   ```bash
+   az group delete --name azure-doc-iq-rg --yes
+   ```
+
+2. Delete Specific Resources:
+   ```bash
+   # Delete web app
+   az webapp delete --resource-group azure-doc-iq-rg --name azure-doc-iq-dev
+   
+   # Delete function app
+   az functionapp delete --resource-group azure-doc-iq-rg --name azure-doc-iq-func-dev
+   
+   # Delete storage account
+   az storage account delete --name docusensedev --resource-group azure-doc-iq-rg
+   ```
+
+================================================================================
+                            USEFUL AZURE CLI COMMANDS
+================================================================================
+
+1. List All Resources:
+   ```bash
+   az resource list --resource-group azure-doc-iq-rg --output table
+   ```
+
+2. Get Resource Details:
+   ```bash
+   az resource show --name azure-doc-iq-dev --resource-group azure-doc-iq-rg --resource-type Microsoft.Web/sites
+   ```
+
+3. Scale App Service:
+   ```bash
+   az appservice plan update --name azure-doc-iq-plan --resource-group azure-doc-iq-rg --sku S1
+   ```
+
+4. Backup Database:
+   ```bash
+   az sql db export --resource-group azure-doc-iq-rg --server azure-doc-iq-sql-dev --name DocuSense --storage-uri "https://docusensedev.blob.core.windows.net/backups/backup.bacpac" --storage-key "your-storage-key"
+   ```
+
+5. Monitor Costs:
+   ```bash
+   az consumption usage list --start-date 2024-01-01 --end-date 2024-01-31
+   ```
+
+================================================================================
+                            SUPPORT AND DOCUMENTATION
+================================================================================
+
+1. Project Documentation:
+   - README.md - Project overview and architecture
+   - Infrastructure/README.md - Detailed deployment guide
+
+2. Azure Documentation:
+   - Azure App Service: https://docs.microsoft.com/en-us/azure/app-service/
+   - Azure Functions: https://docs.microsoft.com/en-us/azure/azure-functions/
+   - Azure Cognitive Services: https://docs.microsoft.com/en-us/azure/cognitive-services/
+   - Azure AD B2C: https://docs.microsoft.com/en-us/azure/active-directory-b2c/
+
+3. .NET Documentation:
+   - ASP.NET Core: https://docs.microsoft.com/en-us/aspnet/core/
+   - Entity Framework: https://docs.microsoft.com/en-us/ef/core/
+
+4. Troubleshooting:
+   - Check application logs in Azure Portal
+   - Review Application Insights for telemetry
+   - Check Azure Monitor for resource metrics
+   - Review audit logs in the database
+
+================================================================================
+                            COMPLETION CHECKLIST
+================================================================================
+
+✅ Prerequisites installed (.NET 8, Azure CLI, etc.)
+✅ Repository cloned and dependencies restored
+✅ Azure infrastructure deployed
+✅ Azure AD B2C configured
+✅ Cognitive Services set up
+✅ Database created and migrations applied
+✅ Application deployed to Azure
+✅ Monitoring configured
+✅ Security settings applied
+✅ Application tested and working
+✅ Documentation reviewed
+
+For support or questions, refer to the documentation or contact the development team. 
